@@ -14,7 +14,7 @@ from jinja2.nodes import Filter, Name
 from sqlalchemy import update
 
 import config
-from db import DB, Site, Task, Tpl, User
+from db import ApiToken, DB, Site, Task, Tpl, User
 from libs import mcrypto as crypto
 from libs.fetcher import Fetcher
 from libs.log import Log
@@ -321,12 +321,34 @@ class DBconverter:
                 `notepadid` INTEGER NOT NULL ,
                 `content` TEXT NULL
             );""")
+            await exec_shell(f"""CREATE TABLE IF NOT EXISTS `api_token` (
+                `id` INTEGER NOT NULL PRIMARY KEY {autokey},
+                `userid` INT UNSIGNED NOT NULL,
+                `name` VARCHAR(128) NOT NULL DEFAULT '',
+                `token_prefix` VARCHAR(32) NOT NULL,
+                `token_hash` VARCHAR(128) NOT NULL,
+                `scopes` VARCHAR(1024) NOT NULL DEFAULT '',
+                `ctime` INT UNSIGNED NOT NULL,
+                `mtime` INT UNSIGNED NOT NULL,
+                `last_used` INT UNSIGNED NULL,
+                `expires_at` INT UNSIGNED NULL,
+                `revoked` TINYINT NOT NULL DEFAULT 0
+            );""")
 
         if config.db_type == "sqlite3":
             for each in ("email", "nickname"):
                 await exec_shell(
                     f"""CREATE UNIQUE INDEX IF NOT EXISTS `ix_{self.db.user.__tablename__}_{each}` ON {self.db.user.__tablename__} ({each})"""
                 )
+            await exec_shell(
+                "CREATE INDEX IF NOT EXISTS `ix_api_token_userid` ON api_token (userid)"
+            )
+            await exec_shell(
+                "CREATE INDEX IF NOT EXISTS `ix_api_token_token_prefix` ON api_token (token_prefix)"
+            )
+            await exec_shell(
+                "CREATE UNIQUE INDEX IF NOT EXISTS `ix_api_token_token_hash` ON api_token (token_hash)"
+            )
         else:
             for each in ("email", "nickname"):
                 try:
@@ -335,7 +357,15 @@ class DBconverter:
                     )
                 except Exception as e:
                     logger_db_converter.debug(e)
-
+            for sql in (
+                "ALTER TABLE `api_token` ADD INDEX `ix_api_token_userid` (`userid`)",
+                "ALTER TABLE `api_token` ADD INDEX `ix_api_token_token_prefix` (`token_prefix`)",
+                "ALTER TABLE `api_token` ADD UNIQUE INDEX `ix_api_token_token_hash` (`token_hash`)",
+            ):
+                try:
+                    await exec_shell(sql)
+                except Exception as e:
+                    logger_db_converter.debug(e)
         try:
             await self.db.task.list(limit=1, fields=("retry_count",))
         except Exception as e:
@@ -375,6 +405,43 @@ class DBconverter:
             await exec_shell(
                 "ALTER TABLE `user` ADD `skey` VARBINARY(128) NOT NULL DEFAULT '' "
             )
+
+        try:
+            await self.db.api_token.list(limit=1, fields=("id",))
+        except Exception as e:
+            logger_db_converter.debug(e)
+            if config.db_type == "sqlite3":
+                await exec_shell(
+                    """CREATE TABLE IF NOT EXISTS `api_token` (
+                    `id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    `userid` INT UNSIGNED NOT NULL,
+                    `name` VARCHAR(128) NOT NULL DEFAULT '',
+                    `token_prefix` VARCHAR(32) NOT NULL,
+                    `token_hash` VARCHAR(128) NOT NULL,
+                    `scopes` VARCHAR(1024) NOT NULL DEFAULT '',
+                    `ctime` INT UNSIGNED NOT NULL,
+                    `mtime` INT UNSIGNED NOT NULL,
+                    `last_used` INT UNSIGNED NULL,
+                    `expires_at` INT UNSIGNED NULL,
+                    `revoked` TINYINT NOT NULL DEFAULT 0
+                    );"""
+                )
+            else:
+                await exec_shell(
+                    """CREATE TABLE IF NOT EXISTS `api_token` (
+                    `id` INTEGER NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                    `userid` INT UNSIGNED NOT NULL,
+                    `name` VARCHAR(128) NOT NULL DEFAULT '',
+                    `token_prefix` VARCHAR(32) NOT NULL,
+                    `token_hash` VARCHAR(128) NOT NULL,
+                    `scopes` VARCHAR(1024) NOT NULL DEFAULT '',
+                    `ctime` INT UNSIGNED NOT NULL,
+                    `mtime` INT UNSIGNED NOT NULL,
+                    `last_used` INT UNSIGNED NULL,
+                    `expires_at` INT UNSIGNED NULL,
+                    `revoked` TINYINT NOT NULL DEFAULT 0
+                    );"""
+                )
 
         try:
             await self.db.user.list(limit=1, fields=("barkurl",))

@@ -6,6 +6,7 @@
 # Created on 2014-08-08 20:28:15
 
 
+from db.api_token import ApiToken
 from db.basedb import AlchemyMixin
 from db.notepad import Notepad
 from db.pubtpl import Pubtpl
@@ -29,3 +30,4 @@ class DB(AlchemyMixin):
         self.site = Site()
         self.pubtpl = Pubtpl()
         self.notepad = Notepad()
+        self.api_token = ApiToken()
