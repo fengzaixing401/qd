@@ -35,8 +35,13 @@ class ApiToken(BaseDB, AlchemyMixin):
         token = secrets.token_urlsafe(32)
         return token, token[:12], ApiToken.hash_token(token)
 
-    async def add_token(self, userid, name='', scopes='', expires_at=None, sql_session=None):
-        token, token_prefix, token_hash = self.generate_token()
+    async def add_token(self, userid, name='', scopes='', expires_at=None, token_value=None, sql_session=None):
+        if token_value:
+            token = token_value
+            token_prefix = token[:12]
+            token_hash = self.hash_token(token)
+        else:
+            token, token_prefix, token_hash = self.generate_token()
         now = time.time()
         insert = dict(
             userid=userid,

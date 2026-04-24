@@ -6,6 +6,8 @@ import datetime
 import json
 import time
 
+from sqlalchemy.exc import IntegrityError
+
 from Crypto.Hash import MD5
 from tornado.escape import json_decode
 from tornado.web import HTTPError
@@ -64,10 +66,9 @@ class ApiBaseHandler(BaseHandler):
 
     def require_scope(self, *required_scopes):
         scopes = self.get_scopes()
-        for scope in required_scopes:
-            if scope in scopes:
-                return
-        raise ApiError(403, "forbidden", "insufficient scope")
+        if "admin" in scopes:
+            return
+        raise ApiError(403, "forbidden", "admin scope required")
 
     def require_admin(self):
         if not self.current_user or self.current_user.get("role") != "admin":
@@ -160,17 +161,23 @@ class ApiBootstrapTokenHandler(ApiBaseHandler):
             raise ApiError(401, "unauthorized", "login required")
         body = self.get_json_body()
         name = body.get("name", "")
-        scopes = body.get("scopes", "")
+        token_value = body.get("token") or None
+        if token_value is not None and not isinstance(token_value, str):
+            raise ApiError(400, "bad_request", "token must be a string")
         expires_at = body.get("expires_at")
-        async with self.db.transaction() as sql_session:
-            token_id, token = await self.db.api_token.add_token(
-                user["id"],
-                name=name,
-                scopes=scopes,
-                expires_at=expires_at,
-                sql_session=sql_session,
-            )
-            token_meta = await self.db.api_token.get(token_id, sql_session=sql_session)
+        try:
+            async with self.db.transaction() as sql_session:
+                token_id, token = await self.db.api_token.add_token(
+                    user["id"],
+                    name=name,
+                    scopes="admin",
+                    expires_at=expires_at,
+                    token_value=token_value,
+                    sql_session=sql_session,
+                )
+                token_meta = await self.db.api_token.get(token_id, sql_session=sql_session)
+        except IntegrityError as exc:
+            raise ApiError(409, "duplicate_token", "token already exists") from exc
         token_meta.pop("token_hash", None)
         token_meta["token"] = token
         self.write_json(token_meta, status=201)
@@ -204,15 +211,22 @@ class ApiTokensHandler(ApiBaseHandler):
         if body.get("userid") and self.current_user.get("role") == "admin":
             self.require_admin()
             userid = int(body["userid"])
-        async with self.db.transaction() as sql_session:
-            token_id, token = await self.db.api_token.add_token(
-                userid,
-                name=body.get("name", ""),
-                scopes=body.get("scopes", ""),
-                expires_at=body.get("expires_at"),
-                sql_session=sql_session,
-            )
-            token_meta = await self.db.api_token.get(token_id, sql_session=sql_session)
+        token_value = body.get("token") or None
+        if token_value is not None and not isinstance(token_value, str):
+            raise ApiError(400, "bad_request", "token must be a string")
+        try:
+            async with self.db.transaction() as sql_session:
+                token_id, token = await self.db.api_token.add_token(
+                    userid,
+                    name=body.get("name", ""),
+                    scopes="admin",
+                    expires_at=body.get("expires_at"),
+                    token_value=token_value,
+                    sql_session=sql_session,
+                )
+                token_meta = await self.db.api_token.get(token_id, sql_session=sql_session)
+        except IntegrityError as exc:
+            raise ApiError(409, "duplicate_token", "token already exists") from exc
         payload = self.sanitize_token(token_meta)
         payload["token"] = token
         self.write_json(payload, status=201)
@@ -239,9 +253,11 @@ class ApiTokenDetailHandler(ApiBaseHandler):
         token = await self.get_token(token_id, mode="w")
         body = self.get_json_body()
         updates = {}
-        for key in ("name", "scopes", "expires_at", "revoked"):
+        for key in ("name", "expires_at"):
             if key in body:
                 updates[key] = body[key]
+        if "scopes" in body:
+            updates["scopes"] = "admin"
         async with self.db.transaction() as sql_session:
             await self.db.api_token.mod(token["id"], sql_session=sql_session, **updates)
             token = await self.db.api_token.get(token["id"], sql_session=sql_session)
@@ -249,8 +265,8 @@ class ApiTokenDetailHandler(ApiBaseHandler):
 
     async def delete(self, token_id):
         token = await self.get_token(token_id, mode="w")
-        await self.db.api_token.revoke(token["id"])
-        self.write_json({"id": token["id"], "revoked": True})
+        await self.db.api_token.delete(token["id"])
+        self.write_json({"id": token["id"], "deleted": True})
 
 
 class ApiTasksHandler(ApiBaseHandler):

@@ -16,19 +16,18 @@
   </div>
   {% endif %}
 
+  <div class="alert alert-info">
+    新建的 Token 固定为 <code>admin</code> 权限。
+  </div>
+
   <div class="form-group">
     <label class="control-label" for="token-name">名称</label>
     <input type="text" class="form-control" id="token-name" name="name" placeholder="例如：web-ui">
   </div>
 
   <div class="form-group">
-    <label class="control-label" for="token-scopes">权限 scopes</label>
-    <input type="text" class="form-control" id="token-scopes" name="scopes" placeholder="例如：task:read token:write 或 admin">
-  </div>
-
-  <div class="form-group">
-    <label class="control-label" for="token-expires-at">过期时间</label>
-    <input type="text" class="form-control" id="token-expires-at" name="expires_at" placeholder="可选，Unix 时间戳">
+    <label class="control-label" for="token-value">Token 内容</label>
+    <input type="text" class="form-control" id="token-value" name="token" placeholder="可选；留空则自动生成">
   </div>
 
   <div class="text-right" style="margin-bottom: 15px;">
@@ -44,8 +43,6 @@
           <th>权限</th>
           <th>创建时间</th>
           <th>最近使用</th>
-          <th>过期时间</th>
-          <th>状态</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -57,20 +54,8 @@
           <td><code>{{ token.scopes or '-' }}</code></td>
           <td>{% if token.ctime %}{{ format_date(token.ctime) }}{% else %}-{% endif %}</td>
           <td>{% if token.last_used %}{{ format_date(token.last_used) }}{% else %}-{% endif %}</td>
-          <td>{% if token.expires_at %}{{ format_date(token.expires_at) }}{% else %}永不过期{% endif %}</td>
           <td>
-            {% if token.revoked %}
-            <span class="label label-default">已撤销</span>
-            {% else %}
-            <span class="label label-success">可用</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if not token.revoked %}
-            <button type="button" class="btn btn-default btn-xs revoke-token" data-token-id="{{ token.id }}">撤销</button>
-            {% else %}
-            -
-            {% endif %}
+            <button type="button" class="btn btn-danger btn-xs delete-token" data-token-id="{{ token.id }}">删除</button>
           </td>
         </tr>
         {% endfor %}
@@ -84,8 +69,7 @@
         var env = {
           action: 'create',
           name: $('#token-name').val(),
-          scopes: $('#token-scopes').val(),
-          expires_at: $('#token-expires-at').val(),
+          token: $('#token-value').val(),
         };
 
         var $this = $(this);
@@ -107,14 +91,14 @@
         return false;
       });
 
-      $('.revoke-token').on('click', function() {
+      $('.delete-token').on('click', function() {
         var tokenId = $(this).data('token-id');
         var $this = $(this);
         $this.button('loading');
         $.ajax('/user/{{ userid }}/tokens', {
           type: 'POST',
           data: {
-            action: 'revoke',
+            action: 'delete',
             token_id: tokenId,
           },
         })

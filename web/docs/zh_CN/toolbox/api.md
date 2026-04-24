@@ -39,61 +39,36 @@ Authorization: Bearer <token>
 
 令牌会在请求前校验以下条件：
 
-- 必须存在且未被撤销
+- 必须存在
 - 如设置了 `expires_at`，则必须未过期
 - 令牌所属用户必须存在
 - 非管理员用户必须为启用状态
 - 当站点启用了邮箱验证时，用户必须已验证邮箱
 
-### 引导创建 Token
-
-`POST /api/v1/bootstrap/token` 用于在**已有 Web 登录会话**的前提下生成 API Token。
-
-也就是说：
-
-- 这个接口不要求 Bearer Token
-- 但要求当前浏览器 / 会话已经登录 QD
-
-请求体示例：
-
-```json
-{
-  "name": "automation",
-  "scopes": "task:read task:write task:run log:read",
-  "expires_at": 1777000000
-}
-```
-
-返回结果中会包含仅返回一次的明文 `token`。
+Token 明文不会保存到数据库；数据库中只保存 `token_hash` 和 `token_prefix`。
 
 ## 权限模型
 
-API 同时使用“用户角色”和“令牌 scope”做权限控制。
+这个项目现在按个人使用场景简化：
 
-常见 scope：
+- 新建 Token 默认就是 `admin`
+- `admin` 是所有管理 API 的通配权限
+- 不再需要为 `tasks`、`tokens`、`logs` 等接口单独配置细粒度 scope
+- 需要管理员身份的跨用户操作，仍然要求当前用户 `role == admin`
 
-- `admin`
-- `token:read`
-- `token:write`
-- `task:read`
-- `task:write`
-- `task:run`
-- `log:read`
-- `log:write`
-- `template:read`
-- `template:write`
-- `template:run`
-- `user:read`
-- `user:write`
-- `site:read`
-- `site:write`
+## 网页端管理
 
-### 管理员接口的判定
+登录网页后，可在：
 
-管理员操作通常要求同时满足：
+- `/my/` → `工具箱` → `Token 管理`
 
-1. 当前用户 `role == admin`
-2. 当前 token 包含 `admin` scope
+直接创建和删除 Token。
+
+网页端支持：
+
+- 自定义 token 内容
+- 留空自动生成 token
+- 删除为真实删除，不是撤销
 
 ## 快速示例
 
@@ -105,8 +80,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/bootstrap/token" \
   -H "Cookie: <你的登录会话 Cookie>" \
   -d '{
     "name": "automation",
-    "scopes": "task:read task:write task:run log:read",
-    "expires_at": 1777000000
+    "token": "my-custom-token"
   }'
 ```
 
@@ -124,10 +98,10 @@ curl "http://127.0.0.1:8923/api/v1/tasks" \
   -H "Authorization: Bearer <token>"
 ```
 
-### 4. 立即执行任务
+### 4. 删除 Token
 
 ```bash
-curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
+curl -X DELETE "http://127.0.0.1:8923/api/v1/tokens/1" \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -141,9 +115,13 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 请求体字段：
 
-- `name`: 令牌名称
-- `scopes`: scope 字符串，可用空格或逗号分隔
+- `name`: 令牌名称，可选
+- `token`: 自定义 token 内容，可选；留空则自动生成
 - `expires_at`: 过期时间戳，可选
+
+返回结果中会包含仅返回一次的明文 `token`。
+
+创建出的 token scope 固定为 `admin`。
 
 ### GET `/api/v1/me`
 
@@ -153,7 +131,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 列出当前用户的 API Token。
 
-需要 scope：`token:read`
+需要 scope：`admin`
 
 查询参数：
 
@@ -163,39 +141,42 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 创建 API Token。
 
-需要 scope：`token:write`
+需要 scope：`admin`
 
 请求体字段：
 
 - `name`
-- `scopes`
+- `token`: 自定义 token 内容，可选
 - `expires_at`
 - `userid`: 管理员可为其他用户创建
+
+创建出的 token scope 固定为 `admin`。
 
 ### GET `/api/v1/tokens/{token_id}`
 
 获取指定 Token 的元信息。
 
-需要 scope：`token:read`
+需要 scope：`admin`
 
 ### PATCH `/api/v1/tokens/{token_id}`
 
 更新 Token。
 
-需要 scope：`token:write`
+需要 scope：`admin`
 
 可更新字段：
 
 - `name`
-- `scopes`
 - `expires_at`
-- `revoked`
+- `scopes`：传入时会被固定为 `admin`
 
 ### DELETE `/api/v1/tokens/{token_id}`
 
-撤销指定 Token。
+删除指定 Token。
 
-需要 scope：`token:write`
+需要 scope：`admin`
+
+删除后，原 token 会立即失效。
 
 ## 任务管理
 
@@ -203,7 +184,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 列出任务。
 
-需要 scope：`task:read`
+需要 scope：`admin`
 
 查询参数：
 
@@ -213,7 +194,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 根据模板创建任务。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -229,17 +210,17 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取任务详情。
 
-需要 scope：`task:read`
+需要 scope：`admin`
 
 查询参数：
 
-- `include_env=true`: 返回解密后的 `init_env`，同时还需要 `task:write`
+- `include_env=true`: 返回解密后的 `init_env`
 
 ### PATCH `/api/v1/tasks/{task_id}`
 
 更新任务。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 可更新字段：
 
@@ -256,25 +237,25 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 删除任务及其日志。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 ### POST `/api/v1/tasks/{task_id}/enable`
 
 启用任务。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 ### POST `/api/v1/tasks/{task_id}/disable`
 
 禁用任务。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 ### PATCH `/api/v1/tasks/{task_id}/schedule`
 
 更新任务计划。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 请求体为计划对象，常用字段包括：
 
@@ -292,7 +273,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 修改任务分组。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -302,7 +283,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 立即执行任务。
 
-需要 scope：`task:run`
+需要 scope：`admin`
 
 返回字段示例：
 
@@ -317,13 +298,13 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取任务日志。
 
-需要 scope：`log:read`
+需要 scope：`admin`
 
 ### DELETE `/api/v1/tasks/{task_id}/logs`
 
 删除任务日志。
 
-需要 scope：`log:write`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -334,7 +315,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 批量操作任务。
 
-需要 scope：`task:write`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -348,7 +329,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取当前用户任务的聚合日志。
 
-需要 scope：`log:read`
+需要 scope：`admin`
 
 查询参数：
 
@@ -361,7 +342,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 列出模板。
 
-需要 scope：`template:read`
+需要 scope：`admin`
 
 查询参数：
 
@@ -373,7 +354,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 创建模板。
 
-需要 scope：`template:write`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -392,17 +373,17 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取模板详情。
 
-需要 scope：`template:read`
+需要 scope：`admin`
 
 查询参数：
 
-- `include_content=true`: 同时返回解密后的 `har`、`tpl`、`init_env`，并额外需要 `template:write`
+- `include_content=true`: 同时返回解密后的 `har`、`tpl`、`init_env`
 
 ### PATCH `/api/v1/templates/{tpl_id}`
 
 更新模板。
 
-需要 scope：`template:write`
+需要 scope：`admin`
 
 可更新字段：
 
@@ -423,19 +404,19 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 删除模板及其关联任务和日志。
 
-需要 scope：`template:write`
+需要 scope：`admin`
 
 ### GET `/api/v1/templates/{tpl_id}/variables`
 
 获取模板变量定义与初始环境。
 
-需要 scope：`template:read`
+需要 scope：`admin`
 
 ### POST `/api/v1/templates/{tpl_id}/run`
 
 直接执行模板。
 
-需要 scope：`template:run`
+需要 scope：`admin`
 
 请求体字段：
 
@@ -448,7 +429,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 列出所有用户。
 
-需要 scope：`user:read`
+需要 scope：`admin`
 
 同时要求管理员角色和 `admin` scope。
 
@@ -460,7 +441,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 创建用户。
 
-需要 scope：`user:write`
+需要 scope：`admin`
 
 同时要求管理员角色和 `admin` scope。
 
@@ -477,7 +458,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取用户详情。
 
-需要 scope：`user:read`
+需要 scope：`admin`
 
 用户可读取自己；读取他人时需要管理员权限。
 
@@ -485,7 +466,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 更新用户信息。
 
-需要 scope：`user:write`
+需要 scope：`admin`
 
 用户可修改自己；修改他人时需要管理员权限。
 
@@ -511,7 +492,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 删除用户及其关联任务、模板、日志、便签。
 
-需要 scope：`user:write`
+需要 scope：`admin`
 
 同时要求管理员角色和 `admin` scope。
 
@@ -519,13 +500,13 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 修改用户密码。
 
-需要 scope：`user:write`
+需要 scope：`admin`
 
 ### PATCH `/api/v1/users/{user_id}/push`
 
 更新用户推送配置。
 
-需要 scope：`user:write`
+需要 scope：`admin`
 
 请求体可包含：
 
@@ -547,7 +528,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 获取站点配置。
 
-需要 scope：`site:read`
+需要 scope：`admin`
 
 同时要求管理员角色和 `admin` scope。
 
@@ -555,7 +536,7 @@ curl -X POST "http://127.0.0.1:8923/api/v1/tasks/123/run" \
 
 更新站点配置。
 
-需要 scope：`site:write`
+需要 scope：`admin`
 
 同时要求管理员角色和 `admin` scope。
 

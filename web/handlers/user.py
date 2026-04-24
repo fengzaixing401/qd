@@ -776,15 +776,13 @@ class UserApiTokenHandler(BaseHandler):
             action = self.get_body_argument('action')
             if action == 'create':
                 name = self.get_body_argument('name', '')
-                scopes = self.get_body_argument('scopes', '')
-                expires_at = self.get_body_argument('expires_at', None)
-                expires_at = int(expires_at) if expires_at else None
+                token_value = self.get_body_argument('token', '') or None
                 async with self.db.transaction() as sql_session:
                     token_id, created_token = await self.db.api_token.add_token(
                         userid,
                         name=name,
-                        scopes=scopes,
-                        expires_at=expires_at,
+                        scopes='admin',
+                        token_value=token_value,
                         sql_session=sql_session,
                     )
                     token = await self.db.api_token.get(token_id, sql_session=sql_session)
@@ -793,7 +791,7 @@ class UserApiTokenHandler(BaseHandler):
                 await self.render_token_page(userid, created_token=created_token, flg='success', title='创建成功', log='Token 已创建，请立即保存完整 token')
                 return
 
-            if action == 'revoke':
+            if action == 'delete':
                 token_id = int(self.get_body_argument('token_id'))
                 async with self.db.transaction() as sql_session:
                     token = await self.db.api_token.get(token_id, sql_session=sql_session)
@@ -801,8 +799,8 @@ class UserApiTokenHandler(BaseHandler):
                         raise Exception('Token 不存在')
                     if int(token['userid']) != userid:
                         raise HTTPError(403)
-                    await self.db.api_token.revoke(token_id, sql_session=sql_session)
-                await self.render_token_page(userid, flg='success', title='撤销成功', log='Token 已撤销')
+                    await self.db.api_token.delete(token_id, sql_session=sql_session)
+                await self.render_token_page(userid, flg='success', title='删除成功', log='Token 已删除')
                 return
 
             raise Exception('不支持的操作')
@@ -810,7 +808,10 @@ class UserApiTokenHandler(BaseHandler):
             raise
         except Exception as e:
             logger_web_handler.error('UserID: %s manage API tokens failed! Reason: %s', userid or '-1', str(e), exc_info=config.traceback_print)
-            await self.render_token_page(userid, flg='danger', title='操作失败', log=str(e))
+            error = str(e)
+            if 'UNIQUE constraint failed' in error or 'Duplicate entry' in error:
+                error = 'Token 已存在'
+            await self.render_token_page(userid, flg='danger', title='操作失败', log=error)
             return
 
 
