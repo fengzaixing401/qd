@@ -144,7 +144,8 @@ class ApiBaseHandler(BaseHandler):
             if (user.get("status") != "Enable") and (user.get("role") != "admin"):
                 raise ApiError(403, "forbidden", "user disabled")
             siteconfig = await self.db.site.get(1, fields=("MustVerifyEmailEn",), sql_session=sql_session)
-            if (siteconfig["MustVerifyEmailEn"] != 0) and (user.get("email_verified") == 0):
+            must_verify_email_en = siteconfig["MustVerifyEmailEn"] if siteconfig else 0
+            if (must_verify_email_en != 0) and (user.get("email_verified") == 0):
                 raise ApiError(403, "forbidden", "email not verified")
             user["isadmin"] = user.get("role") == "admin"
             self.api_token = token
