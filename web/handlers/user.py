@@ -17,7 +17,7 @@ import traceback
 
 from Crypto.Hash import MD5
 from tornado import gen, iostream
-from tornado.web import authenticated
+from tornado.web import HTTPError, authenticated
 
 import config
 from libs import mcrypto as crypto
@@ -738,6 +738,82 @@ class UserSetNewPWDHandler(BaseHandler):
         return
 
 
+class UserApiTokenHandler(BaseHandler):
+    def sanitize_token(self, token):
+        data = dict(token)
+        data.pop('token_hash', None)
+        return data
+
+    async def ensure_token_permission(self, userid):
+        userid = int(userid)
+        if self.current_user['isadmin'] or self.check_permission({'userid': userid}, 'r'):
+            return userid
+        raise HTTPError(403)
+
+    async def render_token_page(self, userid, created_token=None, flg='', title='', log=''):
+        tokens = await self.db.api_token.list(userid=userid, limit=None)
+        tokens = [self.sanitize_token(token) for token in tokens]
+        await self.render(
+            'user_api_tokens.html',
+            userid=userid,
+            tokens=tokens,
+            created_token=created_token,
+            flg=flg,
+            title=title,
+            log=log,
+        )
+
+    @authenticated
+    async def get(self, userid):
+        userid = await self.ensure_token_permission(userid)
+        await self.render_token_page(userid)
+        return
+
+    @authenticated
+    async def post(self, userid):
+        userid = await self.ensure_token_permission(userid)
+        try:
+            action = self.get_body_argument('action')
+            if action == 'create':
+                name = self.get_body_argument('name', '')
+                scopes = self.get_body_argument('scopes', '')
+                expires_at = self.get_body_argument('expires_at', None)
+                expires_at = int(expires_at) if expires_at else None
+                async with self.db.transaction() as sql_session:
+                    token_id, created_token = await self.db.api_token.add_token(
+                        userid,
+                        name=name,
+                        scopes=scopes,
+                        expires_at=expires_at,
+                        sql_session=sql_session,
+                    )
+                    token = await self.db.api_token.get(token_id, sql_session=sql_session)
+                if not token:
+                    raise Exception('Token 创建失败')
+                await self.render_token_page(userid, created_token=created_token, flg='success', title='创建成功', log='Token 已创建，请立即保存完整 token')
+                return
+
+            if action == 'revoke':
+                token_id = int(self.get_body_argument('token_id'))
+                async with self.db.transaction() as sql_session:
+                    token = await self.db.api_token.get(token_id, sql_session=sql_session)
+                    if not token:
+                        raise Exception('Token 不存在')
+                    if int(token['userid']) != userid:
+                        raise HTTPError(403)
+                    await self.db.api_token.revoke(token_id, sql_session=sql_session)
+                await self.render_token_page(userid, flg='success', title='撤销成功', log='Token 已撤销')
+                return
+
+            raise Exception('不支持的操作')
+        except HTTPError:
+            raise
+        except Exception as e:
+            logger_web_handler.error('UserID: %s manage API tokens failed! Reason: %s', userid or '-1', str(e), exc_info=config.traceback_print)
+            await self.render_token_page(userid, flg='danger', title='操作失败', log=str(e))
+            return
+
+
 handlers = [
     (r'/user/(\d+)/pushsw', UserRegPushSw),
     (r'/user/(\d+)/regpush', UserRegPush),
@@ -746,4 +822,5 @@ handlers = [
     (r'/user/(\d+)/database', UserDBHandler),
     (r'/util/custom/(\d+)/pusher', CustomPusherHandler),
     (r'/user/(\d+)/setnewpwd', UserSetNewPWDHandler),
+    (r'/user/(\d+)/tokens', UserApiTokenHandler),
 ]

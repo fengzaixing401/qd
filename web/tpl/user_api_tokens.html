@@ -1,0 +1,135 @@
+{% import "utils.html" as utils %}
+<form method="POST" action="/user/{{ userid }}/tokens">
+  <h2 class="text-center">Token 管理</h2>
+  <hr>
+
+  <div id="run-result">
+    {% if flg=='success' or flg=='danger' %}
+      {% include "utils_run_result.html" %}
+    {% endif %}
+  </div>
+
+  {% if created_token %}
+  <div class="alert alert-warning">
+    <strong>完整 Token 仅显示一次，请立即保存：</strong>
+    <pre style="margin-top:10px; white-space:pre-wrap; word-break:break-all;">{{ created_token }}</pre>
+  </div>
+  {% endif %}
+
+  <div class="form-group">
+    <label class="control-label" for="token-name">名称</label>
+    <input type="text" class="form-control" id="token-name" name="name" placeholder="例如：web-ui">
+  </div>
+
+  <div class="form-group">
+    <label class="control-label" for="token-scopes">权限 scopes</label>
+    <input type="text" class="form-control" id="token-scopes" name="scopes" placeholder="例如：task:read token:write 或 admin">
+  </div>
+
+  <div class="form-group">
+    <label class="control-label" for="token-expires-at">过期时间</label>
+    <input type="text" class="form-control" id="token-expires-at" name="expires_at" placeholder="可选，Unix 时间戳">
+  </div>
+
+  <div class="text-right" style="margin-bottom: 15px;">
+    <button id="create-token" type="submit" data-loading-text="loading..." class="btn btn-primary">创建 Token</button>
+  </div>
+
+  <div>
+    <table class="table table-hover tablesorter" id="token-table">
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>前缀</th>
+          <th>权限</th>
+          <th>创建时间</th>
+          <th>最近使用</th>
+          <th>过期时间</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for token in tokens | sort(reverse=True, attribute="ctime") %}
+        <tr>
+          <td>{{ token.name or '-' }}</td>
+          <td><code>{{ token.token_prefix }}</code></td>
+          <td><code>{{ token.scopes or '-' }}</code></td>
+          <td>{% if token.ctime %}{{ format_date(token.ctime) }}{% else %}-{% endif %}</td>
+          <td>{% if token.last_used %}{{ format_date(token.last_used) }}{% else %}-{% endif %}</td>
+          <td>{% if token.expires_at %}{{ format_date(token.expires_at) }}{% else %}永不过期{% endif %}</td>
+          <td>
+            {% if token.revoked %}
+            <span class="label label-default">已撤销</span>
+            {% else %}
+            <span class="label label-success">可用</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not token.revoked %}
+            <button type="button" class="btn btn-default btn-xs revoke-token" data-token-id="{{ token.id }}">撤销</button>
+            {% else %}
+            -
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    $(function() {
+      $('#create-token').on('click', function() {
+        var env = {
+          action: 'create',
+          name: $('#token-name').val(),
+          scopes: $('#token-scopes').val(),
+          expires_at: $('#token-expires-at').val(),
+        };
+
+        var $this = $(this);
+        $this.button('loading');
+        $.ajax('/user/{{ userid }}/tokens', {
+          type: 'POST',
+          data: env,
+        })
+        .done(function(response) {
+          $('#modal_load .modal-content').html(response);
+        })
+        .fail(function(jxhr) {
+          $('#run-result').html('<h1 class="alert alert-danger text-center">操作失败</h1><div><pre></pre></div>').show().find('pre').text(jxhr.responseText);
+        })
+        .always(function() {
+          $this.button('reset');
+        });
+
+        return false;
+      });
+
+      $('.revoke-token').on('click', function() {
+        var tokenId = $(this).data('token-id');
+        var $this = $(this);
+        $this.button('loading');
+        $.ajax('/user/{{ userid }}/tokens', {
+          type: 'POST',
+          data: {
+            action: 'revoke',
+            token_id: tokenId,
+          },
+        })
+        .done(function(response) {
+          $('#modal_load .modal-content').html(response);
+        })
+        .fail(function(jxhr) {
+          $('#run-result').html('<h1 class="alert alert-danger text-center">操作失败</h1><div><pre></pre></div>').show().find('pre').text(jxhr.responseText);
+        })
+        .always(function() {
+          $this.button('reset');
+        });
+      });
+    })
+  </script>
+
+  {{ utils.submit_loading() }}
+</form>
