@@ -151,6 +151,7 @@ class ApiBaseHandler(BaseHandler):
             user["isadmin"] = user.get("role") == "admin"
             self.api_token = token
             self._api_current_user = user
+            self._current_user = user
             await self.db.api_token.mod(token["id"], last_used=now, sql_session=sql_session)
 
 
