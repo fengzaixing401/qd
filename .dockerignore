@@ -1,0 +1,43 @@
+# VCS and CI metadata
+.git
+.github
+.claude
+
+# Build secrets / local SSH material
+ssh/
+.ssh/
+
+# Documentation
+web/docs
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+
+# Node and frontend artifacts
+node_modules/
+bower_components/
+web_modules/
+jspm_packages/
+build/
+dist/
+out/
+coverage/
+
+# QD local state
+config.json
+local_config.py
+database.db
+database*.db
+*.db-journal
+redis/
+tmp/
+
+# Misc local/editor files
+.virtual_documents/
