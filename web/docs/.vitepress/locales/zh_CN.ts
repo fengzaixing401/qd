@@ -68,7 +68,10 @@ function sidebarGuide() {
     },
     {
       text: "工具箱",
-      items: [{ text: "推送工具", link: "/zh_CN/toolbox/pusher" }],
+      items: [
+        { text: "推送工具", link: "/zh_CN/toolbox/pusher" },
+        { text: "管理 API", link: "/zh_CN/toolbox/api" },
+      ],
     },
   ];
 }
